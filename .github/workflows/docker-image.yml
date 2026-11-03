@@ -1,0 +1,84 @@
+# jenkins-agent-gitee 镜像制作流水线 (GitHub Actions)
+#
+# 分支与镜像 tag 对应关系(按触发的分支自动选择):
+#   main 分支 -> hub-harbor.oepkgs.net/oerv-ci/jenkins-agent-gitee:jdk17
+#   dev  分支 -> hub-harbor.oepkgs.net/oerv-ci/jenkins-agent-gitee:jdk17-dev
+#
+#   前置条件:
+#   1. 在仓库 Settings -> Secrets and variables -> Actions 中配置:
+#      - Variables -> DOCKERHUB_OEPKGS_OERVCI_USERNAME: hub-harbor.oepkgs.net 登录用户名
+#      - Secrets  -> DOCKERHUB_OEPKGS_OERVCI_TOKEN:    hub-harbor.oepkgs.net 登录密码(或 Token)
+#      - Secrets  -> SUPER_PUBLISH_RSA:                super_publish_rsa 私钥的完整 PEM 内容(不存入仓库)
+#   2. super_publish_rsa 不入库，从 Secret 还原（见 Prepare 步骤）。
+#   3. 基础镜像为 openeuler riscv64，默认通过 QEMU 在 x86_64 托管 runner 上模拟构建，
+#      速度较慢。
+
+name: Build and Push Image
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+    paths:
+      - 'openjdk17-Dockerfile'
+      - '.github/workflows/docker-image.yml'
+  workflow_dispatch:
+
+env:
+  HARBOR_REGISTRY: hub-harbor.oepkgs.net
+  IMAGE_NAME: oerv-ci/jenkins-agent-gitee
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set image tag by branch
+        id: tag
+        run: |
+          case "${GITHUB_REF_NAME}" in
+            main) echo "tag=jdk17" >> "$GITHUB_OUTPUT" ;;
+            dev)  echo "tag=jdk17-dev" >> "$GITHUB_OUTPUT" ;;
+            *)    echo "不支持的分支: ${GITHUB_REF_NAME},仅 main/dev 分支构建并推送镜像" >&2; exit 1 ;;
+          esac
+
+      # super_publish_rsa 不入库，从 Secret 还原到构建上下文，
+      # 供 Dockerfile 中 COPY ./super_publish_rsa 使用
+      - name: Prepare build context
+        env:
+          SUPER_PUBLISH_RSA: ${{ secrets.SUPER_PUBLISH_RSA }}
+        run: |
+          echo "$SUPER_PUBLISH_RSA" > super_publish_rsa
+          chmod 600 super_publish_rsa
+
+      # 基础镜像为 riscv64 架构，使用 QEMU 模拟构建
+      - name: Set up QEMU (riscv64)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: riscv64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Harbor registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.HARBOR_REGISTRY }}
+          username: ${{ vars.DOCKERHUB_OEPKGS_OERVCI_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_OEPKGS_OERVCI_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./openjdk17-Dockerfile
+          platforms: linux/riscv64
+          push: true
+          tags: ${{ env.HARBOR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+          # 关闭 BuildKit 默认附带的 attestation,manifest 只保留 riscv64 镜像本体
+          provenance: false
+          # riscv64 模拟构建较慢,进度输出改为纯文本以减少日志量
+          progress: plain

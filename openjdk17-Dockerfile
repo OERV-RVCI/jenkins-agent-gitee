@@ -1,13 +1,9 @@
-FROM hub.oepkgs.net/oerv-ci/openeuler-24.03-lts-sp1-riscv64:latest
+FROM hub.oepkgs.net/oerv-ci/openeuler-24.03-lts-sp4-riscv64-rva23:latest
 
 RUN set -eux; \
     yum install -y python3-pip cpio bsdtar expect openssh sudo vim git strace python-jenkins python3-requests python-concurrent-log-handler python3-gevent python3-marshmallow python3-pyyaml python-pandas python-xlrd python-retrying python-esdk-obs-python git java-17-openjdk java-17-openjdk-devel dumb-init python-click python-xmltodict \
-    python-colorlog python3-pyrpm python3-PyMySQL gcc gcc-c++ lftp make ruby ruby-devel rubygems wget libabigail python3-prettytable python3-unversioned-command lsof \
+    python-colorlog python3-pyrpm python3-PyMySQL gcc gcc-c++ lftp make ruby ruby-devel rubygems wget libabigail python3-prettytable python3-unversioned-command lsof ccb \
     && yum clean all
-
-RUN wget https://eulermaker.compass-ci.openeuler.openatom.cn/api/ems1/repositories/openEuler-packaging/ccb-1.0-8.noarch.rpm \
-    && rpm -ivh ccb-1.0-8.noarch.rpm \
-    && rm ccb-1.0-8.noarch.rpm
 
 ARG VERSION=3107.v665000b_51092
 ARG user=jenkins
@@ -47,8 +43,9 @@ VOLUME ${AGENT_WORKDIR}
 WORKDIR ${AGENT_WORKDIR}
 
 # oecp install
-COPY ./oecp /home/${user}/oecp
-RUN pip install -r /home/${user}/oecp/requirement \
+RUN git clone -b br_symbol --depth=1 https://atomgit.com/openeuler-customization/oecp.git /home/${user}/oecp \
+    && cd /home/${user}/oecp \
+    && pip install -r /home/${user}/oecp/requirement \
     && rm -fr ~/.cache/pip/http/* \
     && gem install rest-client 
 
