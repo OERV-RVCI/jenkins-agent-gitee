@@ -78,5 +78,7 @@ jobs:
           platforms: linux/riscv64
           push: true
           tags: ${{ env.HARBOR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+          # 关闭 BuildKit 默认附带的 attestation,manifest 只保留 riscv64 镜像本体
+          provenance: false
           # riscv64 模拟构建较慢,进度输出改为纯文本以减少日志量
           progress: plain
